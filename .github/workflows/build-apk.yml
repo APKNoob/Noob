@@ -21,16 +21,38 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
-      - name: Cari folder proyek
+      - name: Cari proyek lengkap
         id: p
         run: |
-          f=$(find . -name settings.gradle.kts -not -path './.git/*' | head -n1)
-          echo "Ditemukan: $f"
-          if [ -z "$f" ]; then
-            echo "settings.gradle.kts tidak ada di repository"
+          ok=""
+          for f in $(find . -name settings.gradle.kts -not -path './.git/*'); do
+            d=$(dirname "$f")
+            if [ -f "$d/app/build.gradle.kts" ]; then ok="$d"; break; fi
+          done
+          if [ -z "$ok" ]; then
+            z=$(find . -maxdepth 2 -name '*.zip' -not -path './.git/*' | head -n1)
+            if [ -n "$z" ]; then
+              echo "Memakai zip: $z"
+              mkdir -p _src && unzip -q -o "$z" -d _src
+              for f in $(find _src -name settings.gradle.kts); do
+                d=$(dirname "$f")
+                if [ -f "$d/app/build.gradle.kts" ]; then ok="$d"; break; fi
+              done
+            fi
+          fi
+          if [ -z "$ok" ]; then
+            echo "Proyek lengkap tidak ditemukan. Isi repository:"
+            find . -type f -not -path './.git/*' | sort
             exit 1
           fi
-          echo "dir=$(dirname "$f")" >> "$GITHUB_OUTPUT"
+          echo "Proyek: $ok"
+          echo "dir=$ok" >> "$GITHUB_OUTPUT"
+      - name: Buat keystore jika belum ada
+        working-directory: ${{ steps.p.outputs.dir }}
+        run: |
+          if [ ! -f app/enhancer.jks ]; then
+            keytool -genkeypair -keystore app/enhancer.jks -storepass enhancer123 -keypass enhancer123 -alias enhancer -keyalg RSA -keysize 2048 -validity 36500 -dname "CN=Video Enhancer"
+          fi
       - name: Build release APK
         working-directory: ${{ steps.p.outputs.dir }}
         run: gradle :app:assembleRelease --no-daemon --stacktrace
